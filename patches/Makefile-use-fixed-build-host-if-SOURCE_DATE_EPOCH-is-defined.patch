@@ -1,0 +1,43 @@
+From a246b7902d7ac18ba42aae9cb0235b733a07db95 Mon Sep 17 00:00:00 2001
+From: Luca Boccassi <bluca@debian.org>
+Date: Fri, 15 Feb 2019 21:42:10 +0000
+Subject: [PATCH] Makefile: use fixed build host if SOURCE_DATE_EPOCH is
+ defined
+
+If SOURCE_DATE_EPOCH is defined then we can be reasonably sure the
+user wants the build to be fully reproducible, so use a fixed string.
+In case of a cross build, using uname -s -m -p -i o will still report
+the host's kernel architecture, which will trip some CIs like
+Debian's.
+
+Signed-off-by: Luca Boccassi <bluca@debian.org>
+---
+ Makefile | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index fd7e83dc..91fe426b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -46,6 +46,12 @@ ifneq ($(origin ENABLE_HTTPBOOT), undefined)
+ 	SOURCES += httpboot.c include/httpboot.h
+ endif
+ 
++ifeq ($(SOURCE_DATE_EPOCH),)
++	UNAME=$(shell uname -s -m -p -i -o)
++else
++	UNAME=buildhost
++endif
++
+ SOURCES = $(foreach source,$(ORIG_SOURCES),$(TOPDIR)/$(source)) version.c
+ MOK_SOURCES = $(foreach source,$(ORIG_MOK_SOURCES),$(TOPDIR)/$(source))
+ FALLBACK_SRCS = $(foreach source,$(ORIG_FALLBACK_SRCS),$(TOPDIR)/$(source))
+@@ -66,7 +72,7 @@ shim_cert.h: shim.cer
+ 
+ version.c : $(TOPDIR)/version.c.in
+ 	sed	-e "s,@@VERSION@@,$(VERSION)," \
+-		-e "s,@@UNAME@@,$(shell uname -s -m -p -i -o)," \
++		-e "s,@@UNAME@@,$(UNAME)," \
+ 		-e "s,@@COMMIT@@,$(COMMIT_ID)," \
+ 		< $< > $@
+ 
