@@ -83,7 +83,7 @@ patches-shim/ecos_shim.patch
 What OS and toolchain must we use to reproduce this build?  Include where to find it, etc.  We're going to try to reproduce your build as close as possible to verify that it's really a build of the source tree you tell us it is, so these need to be fairly thorough. At the very least include the specific versions of gcc, binutils, and gnu-efi which were used, and where to find those binaries.
 -------------------------------------------------------------------------------
 
-
+```
 # debian strech
 # binutils/stable,now 2.28-5 amd64 
 # gcc/stable,now 4:6.3.0-4 amd64 
@@ -107,6 +107,7 @@ cd ../shim
 patch -p1 < ../shim-review/patches-shim/ecos_shim.patch 
 cp ../shim-review/patches-shim/ECOS_Tech_Code_signing_Certificate_EV.cer .
 make
+```
 
 
 
