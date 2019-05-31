@@ -1,0 +1,339 @@
+diff --git a/Make.defaults b/Make.defaults
+index f0bfa9f..3cebb0b 100644
+--- a/Make.defaults
++++ b/Make.defaults
+@@ -20,7 +20,8 @@ DATATARGETDIR	?= $(datadir)/$(PKGNAME)/$(VERSION)$(DASHRELEASE)/$(ARCH_SUFFIX)/
+ DEBUGINFO	?= $(prefix)/lib/debug/
+ DEBUGSOURCE	?= $(prefix)/src/debug/
+ OSLABEL		?= $(EFIDIR)
+-DEFAULT_LOADER	?= \\\\grub$(ARCH_SUFFIX).efi
++#DEFAULT_LOADER	?= \\\\grub$(ARCH_SUFFIX).efi
++DEFAULT_LOADER ?= \\\\ecosx64.efi
+ DASHJ		?= -j$(shell echo $$(($$(grep -c "^model name" /proc/cpuinfo) + 1)))
+ 
+ ARCH		?= $(shell $(CC) -dumpmachine | cut -f1 -d- | sed s,i[3456789]86,ia32,)
+@@ -108,7 +109,7 @@ endif
+ LIB_GCC		= $(shell $(CC) $(ARCH_CFLAGS) -print-libgcc-file-name)
+ EFI_LIBS	= -lefi -lgnuefi --start-group Cryptlib/libcryptlib.a Cryptlib/OpenSSL/libopenssl.a --end-group $(LIB_GCC)
+ FORMAT		?= --target efi-app-$(ARCH)
+-EFI_PATH	?= $(LIBDIR)/gnuefi
++EFI_PATH	?= $(LIBDIR)
+ 
+ MMSTEM		?= mm$(ARCH_SUFFIX)
+ MMNAME		= $(MMSTEM).efi
+diff --git a/Makefile b/Makefile
+index 49e14a2..d031f77 100644
+--- a/Makefile
++++ b/Makefile
+@@ -8,6 +8,8 @@ else
+ DASHRELEASE	?=
+ endif
+ 
++VENDOR_CERT_FILE = ECOS_Tech_Code_signing_Certificate_EV.cer
++
+ ifeq ($(MAKELEVEL),0)
+ TOPDIR		?= $(shell pwd)
+ endif
+@@ -33,9 +35,9 @@ CFLAGS += -DENABLE_SHIM_CERT
+ else
+ TARGETS += $(MMNAME) $(FBNAME)
+ endif
+-OBJS	= shim.o mok.o netboot.o cert.o replacements.o tpm.o version.o errlog.o
++OBJS	= shim.o cert.o replacements.o tpm.o version.o errlog.o
+ KEYS	= shim_cert.h ocsp.* ca.* shim.crt shim.csr shim.p12 shim.pem shim.key shim.cer
+-ORIG_SOURCES	= shim.c mok.c netboot.c replacements.c tpm.c errlog.c shim.h version.h $(wildcard include/*.h)
++ORIG_SOURCES	= shim.c replacements.c tpm.c errlog.c shim.h version.h $(wildcard include/*.h)
+ MOK_OBJS = MokManager.o PasswordCrypt.o crypt_blowfish.o
+ ORIG_MOK_SOURCES = MokManager.c PasswordCrypt.c crypt_blowfish.c shim.h $(wildcard include/*.h)
+ FALLBACK_OBJS = fallback.o tpm.o errlog.o
+diff --git a/include/replacements.h b/include/replacements.h
+index ab2a5a5..ca99316 100644
+--- a/include/replacements.h
++++ b/include/replacements.h
+@@ -39,6 +39,7 @@ typedef enum {
+ 
+ extern verification_method_t verification_method;
+ extern int loader_is_participating;
++extern int loader_is_verified;
+ 
+ extern void hook_system_services(EFI_SYSTEM_TABLE *local_systab);
+ extern void unhook_system_services(void);
+diff --git a/replacements.c b/replacements.c
+index 944c779..205d990 100644
+--- a/replacements.c
++++ b/replacements.c
+@@ -134,14 +134,17 @@ replacement_start_image(EFI_HANDLE image_handle, UINTN *exit_data_size, CHAR16 *
+ static EFI_STATUS EFIAPI
+ exit_boot_services(EFI_HANDLE image_key, UINTN map_key)
+ {
+-	if (loader_is_participating ||
+-	    verification_method == VERIFIED_BY_HASH) {
++	//if (loader_is_participating ||
++	//    verification_method == VERIFIED_BY_HASH) {
++	if (loader_is_verified) {
+ 		unhook_system_services();
+ 		EFI_STATUS efi_status;
+ 		efi_status = gBS->ExitBootServices(image_key, map_key);
+-		if (EFI_ERROR(efi_status))
++		if (EFI_ERROR(efi_status)) {
+ 			hook_system_services(systab);
+-		return efi_status;
++			console_print(L"exit_boot_services failed status = %d.\n", efi_status);
++		}
++	return efi_status;
+ 	}
+ 
+ 	console_print(L"Bootloader has not verified loaded image.\n");
+diff --git a/shim.c b/shim.c
+index aee4727..8c8b0a6 100644
+--- a/shim.c
++++ b/shim.c
+@@ -36,6 +36,7 @@
+ #include "shim.h"
+ #if defined(ENABLE_SHIM_CERT)
+ #include "shim_cert.h"
++#error "do not use SHIM_CERT"
+ #endif /* defined(ENABLE_SHIM_CERT) */
+ 
+ #include <stdarg.h>
+@@ -90,6 +91,7 @@ UINT8 *build_cert;
+  */
+ verification_method_t verification_method;
+ int loader_is_participating;
++int loader_is_verified;
+ 
+ #define EFI_IMAGE_SECURITY_DATABASE_GUID { 0xd719b2cb, 0x3d3a, 0x4596, { 0xa3, 0xbc, 0xda, 0xd0, 0x0e, 0x67, 0x65, 0x6f }}
+ 
+@@ -631,6 +633,7 @@ static void update_verification_method(verification_method_t method)
+ 	if (verification_method == VERIFIED_BY_NOTHING)
+ 		verification_method = method;
+ }
++#if 0
+ 
+ /*
+  * Check whether the binary signature or hash are present in db or MokList
+@@ -685,6 +688,7 @@ static EFI_STATUS check_whitelist (WIN_CERTIFICATE_EFI_PKCS *cert,
+ 	update_verification_method(VERIFIED_BY_NOTHING);
+ 	return EFI_SECURITY_VIOLATION;
+ }
++#endif
+ 
+ /*
+  * Check whether we're in Secure Boot and user mode
+@@ -693,6 +697,11 @@ static EFI_STATUS check_whitelist (WIN_CERTIFICATE_EFI_PKCS *cert,
+ static BOOLEAN secure_mode (void)
+ {
+ 	static int first = 1;
++
++        /* ECOS: always secure mode */
++        user_insecure_mode = FALSE ;
++        return TRUE ;
++
+ 	if (user_insecure_mode)
+ 		return FALSE;
+ 
+@@ -1065,19 +1074,24 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
+ 	 * Check whether the binary is whitelisted in any of the firmware
+ 	 * databases
+ 	 */
+-	efi_status = check_whitelist(cert, sha256hash, sha1hash);
++	/*
++     * ECOS: only use build in certificates
++    efi_status = check_whitelist(cert, sha256hash, sha1hash);
+ 	if (EFI_ERROR(efi_status)) {
+ 		LogError(L"check_whitelist(): %r\n", efi_status);
+ 	} else {
+ 		drain_openssl_errors();
+ 		return efi_status;
+ 	}
++	*/
+ 
+ 	if (cert) {
+ #if defined(ENABLE_SHIM_CERT)
+ 		/*
+ 		 * Check against the shim build key
+ 		 */
++        /*
++         * ECOS: only check ECOS certifcate, MokManager not supported
+ 		clear_ca_warning();
+ 		if (sizeof(shim_cert) &&
+ 		    AuthenticodeVerify(cert->CertData,
+@@ -1096,6 +1110,7 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
+ 		} else {
+ 			LogError(L"AuthenticodeVerify(shim_cert) failed\n");
+ 		}
++		*/
+ #endif /* defined(ENABLE_SHIM_CERT) */
+ 
+ 		/*
+@@ -1114,6 +1129,7 @@ static EFI_STATUS verify_buffer (char *data, int datasize,
+ 			tpm_measure_variable(L"Shim", SHIM_LOCK_GUID,
+ 					     vendor_cert_size, vendor_cert);
+ 			efi_status = EFI_SUCCESS;
++			loader_is_verified = 1 ;
+ 			drain_openssl_errors();
+ 			return efi_status;
+ 		} else {
+@@ -1508,6 +1524,7 @@ static EFI_STATUS handle_image (void *data, unsigned int datasize,
+ 	return EFI_SUCCESS;
+ }
+ 
++#if 0
+ static int
+ should_use_fallback(EFI_HANDLE image_handle)
+ {
+@@ -1582,6 +1599,7 @@ error:
+ 
+ 	return ret;
+ }
++#endif
+ 
+ /*
+  * Generate the path of an executable given shim's path and the name
+@@ -1874,8 +1892,8 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
+ 	EFI_PHYSICAL_ADDRESS alloc_address;
+ 	UINTN alloc_pages;
+ 	CHAR16 *PathName = NULL;
+-	void *sourcebuffer = NULL;
+-	UINT64 sourcesize = 0;
++	//void *sourcebuffer = NULL;
++	//UINT64 sourcesize = 0;
+ 	void *data = NULL;
+ 	int datasize;
+ 
+@@ -1900,6 +1918,8 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
+ 		goto done;
+ 	}
+ 
++       /* ECOS: no network boot */
++#if 0
+ 	if (findNetboot(li->DeviceHandle)) {
+ 		efi_status = parseNetbootinfo(image_handle);
+ 		if (EFI_ERROR(efi_status)) {
+@@ -1929,6 +1949,7 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
+ 		datasize = sourcesize;
+ #endif
+ 	} else {
++#endif
+ 		/*
+ 		 * Read the new executable off disk
+ 		 */
+@@ -1940,7 +1961,7 @@ EFI_STATUS start_image(EFI_HANDLE image_handle, CHAR16 *ImagePath)
+ 			ClearErrors();
+ 			goto done;
+ 		}
+-	}
++	//}
+ 
+ 	if (datasize < 0) {
+ 		efi_status = EFI_INVALID_PARAMETER;
+@@ -1994,6 +2015,8 @@ done:
+ EFI_STATUS init_grub(EFI_HANDLE image_handle)
+ {
+ 	EFI_STATUS efi_status;
++
++	/* no MOK or Fallback
+ 	int use_fb = should_use_fallback(image_handle);
+ 
+ 	efi_status = start_image(image_handle, use_fb ? FALLBACK :second_stage);
+@@ -2009,6 +2032,8 @@ EFI_STATUS init_grub(EFI_HANDLE image_handle)
+ 		efi_status = start_image(image_handle,
+ 					 use_fb ? FALLBACK : second_stage);
+ 	}
++	*/
++	efi_status = start_image(image_handle, second_stage);
+ 
+ 	if (EFI_ERROR(efi_status)) {
+ 		console_print(L"start_image() returned %r\n", efi_status);
+@@ -2111,7 +2136,7 @@ get_load_option_optional_data(UINT8 *data, UINTN data_size,
+ 			i += dp.len;
+ 			break;
+ 		}
+-
++		
+ 		/*
+ 		 * It's just some random DP node; skip it.
+ 		 */
+@@ -2491,7 +2516,10 @@ shim_init(void)
+ 	dprint(L"%a", shim_version);
+ 
+ 	/* Set the second stage loader */
++	/* ECOS always load default
+ 	set_second_stage (global_image_handle);
++	*/
++	second_stage = DEFAULT_LOADER;
+ 
+ 	if (secure_mode()) {
+ 		if (vendor_cert_size || vendor_dbx_size) {
+@@ -2539,6 +2567,8 @@ shim_fini(void)
+ extern EFI_STATUS
+ efi_main(EFI_HANDLE passed_image_handle, EFI_SYSTEM_TABLE *passed_systab);
+ 
++/* ECOS, no hooks */
++#if 0
+ static void
+ __attribute__((__optimize__("0")))
+ debug_hook(void)
+@@ -2586,6 +2616,7 @@ debug_hook(void)
+ 	}
+ 	x = 1;
+ }
++#endif
+ 
+ EFI_STATUS
+ efi_main (EFI_HANDLE passed_image_handle, EFI_SYSTEM_TABLE *passed_systab)
+@@ -2594,6 +2625,7 @@ efi_main (EFI_HANDLE passed_image_handle, EFI_SYSTEM_TABLE *passed_systab)
+ 	EFI_HANDLE image_handle;
+ 
+ 	verification_method = VERIFIED_BY_NOTHING;
++	loader_is_verified  = 0 ;
+ 
+ 	vendor_cert_size = cert_table.vendor_cert_size;
+ 	vendor_dbx_size = cert_table.vendor_dbx_size;
+@@ -2632,12 +2664,16 @@ efi_main (EFI_HANDLE passed_image_handle, EFI_SYSTEM_TABLE *passed_systab)
+ 	/*
+ 	 * if SHIM_DEBUG is set, wait for a debugger to attach.
+ 	 */
++	/* ECOS, no hooks
+ 	debug_hook();
++	*/
+ 
+ 	/*
+ 	 * Before we do anything else, validate our non-volatile,
+ 	 * boot-services-only state variables are what we think they are.
+ 	 */
++	/* ECOS no MOK */
++#if 0	
+ 	efi_status = import_mok_state(image_handle);
+ 	if (!secure_mode() && efi_status == EFI_INVALID_PARAMETER) {
+ 		/*
+@@ -2657,11 +2693,16 @@ die:
+ 		gRT->ResetSystem(EfiResetShutdown, EFI_SECURITY_VIOLATION,
+ 				 0, NULL);
+ 	}
++#endif
+ 
+ 	efi_status = shim_init();
+ 	if (EFI_ERROR(efi_status)) {
+ 		msg = 1;
+-		goto die;
++		console_print(L"Something has gone seriously wrong: %s: %r\n",
++			      msgs[msg], efi_status);
++		msleep(5000000);
++		gRT->ResetSystem(EfiResetShutdown, EFI_SECURITY_VIOLATION,
++				 0, NULL);
+ 	}
+ 
+ 	/*
+@@ -2669,7 +2710,10 @@ die:
+ 	 */
+ 	if (user_insecure_mode) {
+ 		console_print(L"Booting in insecure mode\n");
+-		msleep(2000000);
++		console_print(L"System is compromised.  halting.\n");
++		msleep(5000000);
++		gRT->ResetSystem(EfiResetShutdown, EFI_SECURITY_VIOLATION, 0, NULL);
++		return EFI_SECURITY_VIOLATION;
+ 	}
+ 
+ 	/*

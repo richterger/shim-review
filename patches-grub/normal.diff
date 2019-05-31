@@ -1,0 +1,31 @@
+--- grub-core/normal/main.c	2013-12-24 17:40:31.000000000 +0100
++++ ../../../patched.grub-2.02_beta2-r9/work/grub-2.02~beta2/grub-core/normal/main.c	2016-12-11 13:21:39.830000000 +0100
+@@ -293,6 +293,9 @@
+   grub_boot_time ("Entering normal mode");
+   nested_level++;
+   grub_normal_execute (config, 0, 0);
++  
++  grub_fatal (N_("normal_execute failed")) ;
++  
+   grub_boot_time ("Entering shell");
+   grub_cmdline_run (0);
+   nested_level--;
+--- grub-core/normal/menu.c	2013-12-24 17:29:27.000000000 +0100
++++ ../../../patched.grub-2.02_beta2-r9/work/grub-2.02~beta2/grub-core/normal/menu.c	2016-12-11 13:21:29.970000000 +0100
+@@ -894,6 +894,8 @@
+       autoboot = 0;
+       grub_print_error ();
+ 
++      break ; // don't check password on ESC (exit normal mode to shell in forbidden in main.c)
++      /*
+       if (grub_normal_exit_level)
+ 	break;
+ 
+@@ -906,6 +908,7 @@
+ 	}
+ 
+       break;
++      */
+     }
+ 
+   return err1;

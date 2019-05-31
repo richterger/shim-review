@@ -1,0 +1,314 @@
+--- grub-core/loader/module_signing.c	1970-01-01 01:00:00.000000000 +0100
++++ grub-core/loader/module_signing.c	2017-09-27 08:13:12.590000000 +0200
+@@ -0,0 +1,311 @@
++
++/* Ecos module signature checker
++ *
++ * Copyright (C) 2013 ECOS Technology GmbH / Gerald Richter
++ */
++
++
++#include <grub/crypto.h>
++
++gpg_err_code_t
++grub_mod_verify_get_header (const grub_uint8_t *    mod,
++                            grub_size_t             modlen,
++                            grub_size_t *           pmodlen,
++                            const grub_uint8_t **   psig,
++                            grub_size_t *           psig_len);
++
++gpg_err_code_t
++grub_mod_verify_sig (const grub_uint8_t *sig,
++                     grub_size_t siglen,
++                     grub_uint8_t *fp,
++                     grub_size_t fplen);
++
++
++#ifdef DEFINE_ECOS_VERIFY_SIGNATURE
++#include <grub/gcrypt/gcrypt.h>
++
++#define debug_printf(format, args...) grub_dprintf ("linux", format, ##args)
++//#define debug_printf
++
++/*
++ * Module signature information block.
++ *
++ * The constituents of the signature section are, in order:
++ *
++ *    - Signer's name
++ *    - Key identifier
++ *    - Signature data
++ *    - Information block
++ */
++struct module_signature {
++    grub_uint8_t    algo;           /* Public-key crypto algorithm [enum pkey_algo] */
++    grub_uint8_t    hash;           /* Digest algorithm [enum pkey_hash_algo] */
++    grub_uint8_t    id_type;        /* Key identifier type [enum pkey_id_type] */
++    grub_uint8_t    signer_len;     /* Length of signer's name */
++    grub_uint8_t    key_id_len;     /* Length of key identifier */
++    grub_uint8_t    __pad[3];
++    grub_uint32_t   sig_len;        /* Length of signature data */
++};
++
++char magic_number[] = "~Module signature appended~\n";
++char magic_signer[] = "ECOS Technology GmbH: code-sign" ;
++
++static const grub_uint8_t magic_pkey[] = {
++0xA0, 0x18, 0x5C, 0x29, 0xDD, 0xF2, 0x7D, 0xDA,
++0x64, 0x96, 0xF3, 0x25, 0x2A, 0x5C, 0x50, 0x6D,
++0xEA, 0xCC, 0x0D, 0x67, 0x55, 0xCD, 0xA9, 0x88,
++0xE5, 0xE6, 0x9A, 0x02, 0xFE, 0x7F, 0xDD, 0x1A,
++0x19, 0x4B, 0x66, 0xD0, 0xAE, 0xD4, 0x1F, 0xB6,
++0x81, 0x90, 0xF6, 0xCD, 0x16, 0x61, 0xFC, 0xA8,
++0x18, 0xDD, 0xB1, 0xB0, 0xEE, 0x0B, 0x66, 0xE5,
++0x22, 0xFD, 0xCD, 0x2B, 0x1F, 0x53, 0xCC, 0x0B,
++0x09, 0xC6, 0x55, 0x5E, 0xF0, 0x46, 0xED, 0x54,
++0x93, 0x5B, 0x82, 0x3D, 0xF8, 0x9B, 0xCC, 0xD5,
++0xA8, 0x4D, 0xEB, 0xD5, 0xC9, 0xC3, 0x00, 0x46,
++0xD2, 0xB0, 0xFE, 0x81, 0xD3, 0xBC, 0x9F, 0xD5,
++0x5C, 0x44, 0xF5, 0x4E, 0xCC, 0xD7, 0x9C, 0xF1,
++0x1A, 0xD8, 0xE8, 0xF7, 0x91, 0xFB, 0xEF, 0x11,
++0x0B, 0x38, 0x49, 0xEE, 0x60, 0xD7, 0xE8, 0x10,
++0x26, 0x92, 0x97, 0xC7, 0xE1, 0x2D, 0x07, 0x88,
++0x2F, 0x85, 0xE0, 0xC2, 0x6F, 0x4A, 0x2F, 0x76,
++0x3C, 0xAD, 0x9B, 0xCC, 0x65, 0xBF, 0x8C, 0xDF,
++0x71, 0x9C, 0x8C, 0xC4, 0xA1, 0x01, 0x40, 0x51,
++0xBA, 0x85, 0x5C, 0xDE, 0xC0, 0x03, 0x67, 0x8C,
++0x82, 0x59, 0xBF, 0x93, 0x4A, 0xB9, 0xAD, 0x66,
++0x4A, 0x5B, 0xFC, 0x4A, 0xD0, 0x3A, 0xB5, 0x18,
++0xC6, 0xB9, 0x38, 0x52, 0x1F, 0x4F, 0x31, 0x7B,
++0x45, 0x62, 0x61, 0x8E, 0xC7, 0x24, 0xB8, 0x44,
++0xA2, 0xF4, 0x87, 0x3C, 0x0E, 0x3F, 0xA9, 0x18,
++0x7D, 0x3B, 0x91, 0x51, 0x2A, 0x78, 0xDD, 0xB6,
++0x50, 0x03, 0xCA, 0x85, 0x44, 0x0E, 0x38, 0x7D,
++0xFB, 0x57, 0x32, 0x7B, 0x09, 0x02, 0x21, 0x7F,
++0x42, 0x98, 0x0C, 0xFE, 0xC6, 0x49, 0x69, 0x31,
++0x13, 0xD4, 0xD9, 0x44, 0x4D, 0x48, 0x71, 0x30,
++0x0D, 0x13, 0x0A, 0x99, 0xE3, 0x67, 0x20, 0x44,
++0x08, 0x1A, 0xB5, 0x5F, 0x4F, 0x77, 0x1A, 0x7B
++} ;
++
++
++//gpg_err_code_t
++//grub_mod_verify_make_digest (grub_uint8_t    hash,
++//                             const void *    mod,
++//                             unsigned long   modlen,
++//                             grub_uint8_t *  fingerprint)
++//{
++//    void *fingerprint_context = NULL;
++//    const gcry_md_spec_t *_hash = NULL;
++//
++//    if (hash == 4)
++//    {
++//        _hash = GRUB_MD_SHA256;
++//    }
++//    else if (hash == 6)
++//    {
++//        _hash = GRUB_MD_SHA512;
++//    }
++//    else
++//    {
++//        return -EBADMSG;
++//    }
++//    fingerprint_context = grub_zalloc (_hash->contextsize);
++//    if (!fingerprint_context)
++//        return grub_error (GRUB_ERR_OUT_OF_MEMORY, "cannot allocate fingerprint context");
++//    grub_memset (fingerprint_context, 0, sizeof (fingerprint_context));
++//
++//    _hash->init (fingerprint_context);
++//    _hash->write (fingerprint_context, mod, modlen);
++//    _hash->final (fingerprint_context);
++//
++//    grub_memcpy (fingerprint, _hash->read (fingerprint_context), _hash->contextsize);
++//
++//    grub_free (fingerprint_context);
++//
++//    return 0 ;
++//}
++
++
++gpg_err_code_t
++grub_mod_verify_get_header (const grub_uint8_t *    mod,
++                            grub_size_t             modlen,
++                            grub_size_t *           pmodlen,
++                            const grub_uint8_t **   psig,
++                            grub_size_t *           psig_len)
++{
++    struct module_signature *   pms;
++    const grub_uint8_t *        sig;
++    grub_size_t                 sig_len;
++    char                        signer [256];
++
++    if (modlen <= sizeof(struct module_signature) + sizeof (magic_number))
++    {
++        debug_printf("modlen %ld <= sizeof(ms) + sizeof (magic_number)\n", modlen) ;
++        return GPG_ERR_INV_ARG;
++    }
++
++    modlen -= sizeof(struct module_signature) + sizeof (magic_number) - 1;
++
++    if (grub_memcmp (magic_number, mod + modlen + sizeof (struct module_signature), sizeof(magic_number) - 1))
++    {
++        char magic[sizeof(magic_number)] ;
++        grub_memcpy (magic, mod + modlen + sizeof (struct module_signature), sizeof(magic_number) - 1) ;
++        magic[sizeof(magic_number) - 1] = '\0' ;     
++        debug_printf("not signed magic_number=<%s> modlen=%ld sig_len=%d magic_len=%d magic=<%s>\n", magic_number, modlen, sizeof (struct module_signature), sizeof(magic_number) - 1, magic) ;
++        return GPG_ERR_INV_ARG;
++    }
++
++    pms = (struct module_signature *)(mod + modlen);
++    sig_len = grub_be_to_cpu32(pms -> sig_len);
++    if (sig_len >= modlen)
++    {
++        debug_printf("sig_len %ld >= modlen %ld\n", sig_len, modlen) ;
++        return GPG_ERR_INV_ARG;
++    }
++    modlen -= sig_len;
++    sig = mod + modlen;
++
++    if ((grub_size_t)pms -> signer_len + pms -> key_id_len >= modlen)
++    {
++        debug_printf("(grub_size_t)ms.signer_len %d + ms.key_id_len %d >= modlen %ld \n", pms -> signer_len, pms -> key_id_len, modlen) ;
++        return GPG_ERR_INV_ARG;
++    }
++    modlen -= (grub_size_t)pms -> signer_len + pms -> key_id_len;
++    if ((grub_size_t)pms -> signer_len >= sizeof (signer) - 1)
++    {
++        debug_printf("(grub_size_t)ms.signer_len %d >= sizeof (signer) - 1 \n", pms -> signer_len) ;
++        return GPG_ERR_INV_ARG;
++    }
++
++    debug_printf("sig_len = %ld\n", sig_len) ;
++    debug_printf("modlen = %ld\n", modlen) ;
++    debug_printf("ms.signer_len = %d\n", pms -> signer_len) ;
++    debug_printf("ms.algo = %d\n", pms -> algo) ;
++    debug_printf("ms.id_type = %d\n", pms -> id_type) ;
++    debug_printf("ms.hash = %d\n", pms -> hash) ;
++    debug_printf("ms.key_id_len = %d\n", pms -> key_id_len) ;
++
++    grub_memcpy (signer, mod + modlen, pms -> signer_len) ;
++    signer[pms -> signer_len] = '\0' ;
++    debug_printf("signer = %s\n", signer) ;
++
++    if (grub_strncmp(signer, magic_signer, sizeof (magic_signer)))
++    {
++        debug_printf("wrong signer (%s/%s)\n", signer, magic_signer) ;
++        return GPG_ERR_BAD_SIGNATURE;
++    }
++
++
++    /* For the moment, only support RSA and X.509 identifiers */
++    if (pms -> algo != 1 /*PKEY_ALGO_RSA*/ ||
++        pms -> id_type != 1 /*PKEY_ID_X509*/ ||
++        (pms -> hash != 4 /*PKEY_HASH_SHA256*/ && pms -> hash != 6 /*PKEY_HASH_SHA512*/)  )
++    {
++        debug_printf("type or hash unsupported\n") ;
++        return GPG_ERR_BAD_SIGNATURE;
++    }
++
++    *psig = sig ;
++    *psig_len = sig_len ;
++    *pmodlen = modlen ;
++
++    return 0 ;
++}
++
++static int rsa_pad (gcry_mpi_t *hmpi, grub_uint8_t *digest, grub_size_t dlen, gcry_mpi_t *pkey)
++{
++    grub_size_t tlen, emlen, fflen;
++    grub_uint8_t *em, *emptr;
++    const gcry_md_spec_t *_hash = GRUB_MD_SHA512;
++    int ret;
++
++    unsigned nbits = gcry_mpi_get_nbits (pkey[0]);
++
++    tlen = dlen + _hash->asnlen;
++    emlen = (nbits + 7) / 8;
++    if (emlen < tlen + 11)
++        return 1;
++
++    em = grub_malloc (emlen);
++    if (!em)
++        return 1;
++
++    em[0] = 0x00;
++    em[1] = 0x01;
++    fflen = emlen - tlen - 3;
++    for (emptr = em + 2; emptr < em + 2 + fflen; emptr++)
++        *emptr = 0xff;
++    *emptr++ = 0x00;
++    grub_memcpy (emptr, _hash->asnoid, _hash->asnlen);
++    emptr += _hash->asnlen;
++    grub_memcpy (emptr, digest, dlen);
++
++    ret = gcry_mpi_scan (hmpi, GCRYMPI_FMT_USG, em, emlen, 0);
++    grub_free (em);
++
++    return ret;
++}
++
++/*
++ * Verify the signature on a module.
++ */
++gpg_err_code_t
++grub_mod_verify_sig (const grub_uint8_t *sig,
++                     grub_size_t siglen,
++                     grub_uint8_t *fp,
++                     grub_size_t fplen)
++{
++    grub_size_t i;
++    gcry_mpi_t pkey[2] ;
++    gcry_mpi_t data ;
++    gcry_mpi_t gsig ;
++
++    /*
++    debug_printf("fingerprint: ") ;
++    for (i = 0; i < fplen; i++)
++        debug_printf("%02x ", fp[i]) ;
++    debug_printf("\n") ;
++
++    debug_printf("signature: ") ;
++    for (i = 0; i < siglen; i++)
++        debug_printf("%02x ", sig[i]) ;
++    debug_printf("\n") ;
++    */
++    
++    pkey[1] = gcry_mpi_set_ui (NULL, 0x10001) ;
++
++    if (gcry_mpi_scan (&pkey[0], GCRYMPI_FMT_USG, magic_pkey, sizeof(magic_pkey), 0))
++    {
++        debug_printf("gcry_mpi_scan pkey failed\n") ;
++        return GPG_ERR_BAD_SIGNATURE;
++    }
++
++    if (rsa_pad (&data, fp, fplen, pkey))
++    {
++        debug_printf("rsa_pad failed\n") ;
++        return GPG_ERR_BAD_SIGNATURE;
++    }
++
++    if (siglen != 256 + 2)
++    {
++        debug_printf("siglen %d != 256\n", siglen) ;
++        return GPG_ERR_INV_ARG;
++    }
++    if (gcry_mpi_scan (&gsig, GCRYMPI_FMT_USG, sig+2, 256, 0))
++    {
++        debug_printf("gcry_mpi_scan sig failed\n") ;
++        return GPG_ERR_BAD_SIGNATURE;
++    }
++    if (!grub_crypto_pk_rsa)
++    {
++        debug_printf("grub_crypto_pk_rsa not loaded\n") ;
++        return GPG_ERR_BAD_SIGNATURE;
++    }
++    if (grub_crypto_pk_rsa->verify (0, data, &gsig, pkey, 0, 0))
++    {
++        debug_printf("grub_crypto_pk_rsa->verify failed\n") ;
++        return GPG_ERR_BAD_SIGNATURE;
++    }
++    debug_printf("grub_crypto_pk_rsa->verify OK!!!\n") ;
++    return 0 ;
++}
++
++#endif // DEFINE_ECOS_VERIFY_SIGNATURE

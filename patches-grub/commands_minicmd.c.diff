@@ -1,0 +1,56 @@
+--- ./grub-core/commands/minicmd.c.orig	2016-03-31 08:57:19.000000000 +0200
++++ ./grub-core/commands/minicmd.c	2016-04-13 13:06:33.000000000 +0200
+@@ -91,6 +91,7 @@
+ }
+ 
+ /* dump ADDRESS [SIZE] */
++/*
+ static grub_err_t
+ grub_mini_cmd_dump (struct grub_command *cmd __attribute__ ((unused)),
+ 		    int argc, char *argv[])
+@@ -122,8 +123,10 @@
+ 
+   return 0;
+ }
++*/
+ 
+ /* rmmod MODULE */
++/*
+ static grub_err_t
+ grub_mini_cmd_rmmod (struct grub_command *cmd __attribute__ ((unused)),
+ 		     int argc, char *argv[])
+@@ -142,8 +145,10 @@
+ 
+   return 0;
+ }
++*/
+ 
+ /* lsmod */
++#ifdef OFF
+ static grub_err_t
+ grub_mini_cmd_lsmod (struct grub_command *cmd __attribute__ ((unused)),
+ 		     int argc __attribute__ ((unused)),
+@@ -174,6 +179,7 @@
+ 
+   return 0;
+ }
++#endif
+ 
+ /* exit */
+ static grub_err_t __attribute__ ((noreturn))
+@@ -196,6 +202,7 @@
+   cmd_help =
+     grub_register_command ("help", grub_mini_cmd_help,
+ 			   0, N_("Show this message."));
++  /*
+   cmd_dump =
+     grub_register_command ("dump", grub_mini_cmd_dump,
+ 			   N_("ADDR [SIZE]"), N_("Show memory contents."));
+@@ -205,6 +212,7 @@
+   cmd_lsmod =
+     grub_register_command ("lsmod", grub_mini_cmd_lsmod,
+ 			   0, N_("Show loaded modules."));
++*/
+   cmd_exit =
+     grub_register_command ("exit", grub_mini_cmd_exit,
+ 			   0, N_("Exit from GRUB."));

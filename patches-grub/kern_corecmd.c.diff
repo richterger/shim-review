@@ -1,0 +1,27 @@
+--- ./grub-core/kern/corecmd.c.orig	2016-03-31 08:57:19.000000000 +0200
++++ ./grub-core/kern/corecmd.c	2016-04-13 13:08:41.000000000 +0200
+@@ -69,6 +69,7 @@
+ }
+ 
+ /* insmod MODULE */
++/*
+ static grub_err_t
+ grub_core_cmd_insmod (struct grub_command *cmd __attribute__ ((unused)),
+ 		      int argc, char *argv[])
+@@ -88,6 +89,7 @@
+ 
+   return 0;
+ }
++*/
+ 
+ static int
+ grub_mini_print_devices (const char *name, void *data __attribute__ ((unused)))
+@@ -184,6 +186,8 @@
+ 			 N_("Remove an environment variable."));
+   grub_register_command ("ls", grub_core_cmd_ls,
+ 			 N_("[ARG]"), N_("List devices or files."));
++/*
+   grub_register_command ("insmod", grub_core_cmd_insmod,
+ 			 N_("MODULE"), N_("Insert a module."));
++*/
+ }

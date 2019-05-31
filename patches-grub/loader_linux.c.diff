@@ -1,0 +1,94 @@
+--- grub-core/loader/linux.c	2013-12-24 17:29:27.000000000 +0100
++++ ../../../patched.grub-2.02_beta2-r9/work/grub-2.02~beta2/grub-core/loader/linux.c	2016-12-11 14:40:51.150000000 +0100
+@@ -1,9 +1,20 @@
++
+ #include <grub/types.h>
+ #include <grub/err.h>
+ #include <grub/linux.h>
+ #include <grub/misc.h>
+ #include <grub/file.h>
+ #include <grub/mm.h>
++#include <grub/crypto.h>
++#include <grub/time.h>
++
++#ifndef _LINUX_16_BUILD_
++#define ECOS_VERIFY_SIGNATURE 1
++#endif
++
++#ifdef ECOS_VERIFY_SIGNATURE
++#include "module_signing.c"
++#endif
+ 
+ struct newc_head
+ {
+@@ -196,6 +207,10 @@
+ 	  newc = 0;
+ 	}
+       grub_file_filter_disable_compression ();
++#ifdef ECOS_VERIFY_SIGNATURE
++      grub_file_filter_disable_pubkey ();
++      grub_dprintf ("crypt", "initrd: Verify Sig file %s\n", fname);
++#endif
+       initrd_ctx->components[i].file = grub_file_open (fname);
+       if (!initrd_ctx->components[i].file)
+ 	{
+@@ -249,6 +264,11 @@
+   int newc = 0;
+   struct dir *root = 0;
+ 
++#ifdef ECOS_VERIFY_SIGNATURE
++    const grub_uint8_t *sig;
++    grub_size_t siglen = 0, real_modlen = 0;
++#endif
++
+   for (i = 0; i < initrd_ctx->nfiles; i++)
+     {
+       grub_ssize_t cursize;
+@@ -282,6 +302,47 @@
+ 	  grub_initrd_close (initrd_ctx);
+ 	  return grub_errno;
+ 	}
++
++#ifdef ECOS_VERIFY_SIGNATURE
++        grub_dprintf ("linux", "Loading initrd component %d (%d bytes)\n", i, cursize);
++
++        // determine real module length (without attached signature)
++        if (grub_mod_verify_get_header(ptr, cursize, &real_modlen, &sig, &siglen))
++        {
++	    grub_sleep (10) ;
++            grub_fatal (N_("grub_mod_verify_get_header initrd failed")) ;
++	    return grub_error (GRUB_ERR_BAD_SIGNATURE, N_("grub_mod_verify_get_header failed"));
++        }
++
++        grub_dprintf ("linux", "Hashing initrd image (%d bytes)\n", real_modlen);
++        void *fingerprint_context = NULL;
++        fingerprint_context = grub_zalloc (GRUB_MD_SHA512->contextsize);
++        if (!fingerprint_context)
++        {
++	    grub_sleep (10) ;
++            grub_fatal (N_("cannot allocate fingerprint context")) ;
++            return grub_error (GRUB_ERR_OUT_OF_MEMORY, "cannot allocate fingerprint context");
++        }
++        grub_memset (fingerprint_context, 0, sizeof (fingerprint_context));
++        GRUB_MD_SHA512->init  (fingerprint_context);
++        GRUB_MD_SHA512->write (fingerprint_context, ptr, real_modlen);
++        GRUB_MD_SHA512->final (fingerprint_context);
++
++        grub_uint8_t fingerprint [64] ;
++        grub_memcpy (fingerprint, GRUB_MD_SHA512->read (fingerprint_context), GRUB_MD_SHA512->mdlen);
++
++        // verify signature
++        grub_dprintf ("linux", "Verifying initrd signature\n");
++        if (grub_mod_verify_sig (sig, siglen, fingerprint, 64))
++        {
++            grub_initrd_close (initrd_ctx);
++            grub_free (fingerprint_context);
++	    grub_sleep (10) ;
++            grub_fatal (N_("bad initrd signature")) ;
++            return grub_error (GRUB_ERR_BAD_SIGNATURE, N_("bad signature"));
++        }
++        grub_free (fingerprint_context);
++#endif
+       ptr += cursize;
+       grub_memset (ptr, 0, ALIGN_UP_OVERHEAD (cursize, 4));
+       ptr += ALIGN_UP_OVERHEAD (cursize, 4);
