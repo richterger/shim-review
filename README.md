@@ -38,7 +38,7 @@ Who is the primary contact for security updates, etc.
 - Position: CTO
 - Email address: richter@ecos.de
 - PGP key, signed by the other security contacts, and preferably also with signatures that are reasonably well known in the linux community:
-https://github.com/richterger/shim-review/pgpkeys/gerald.richter@ecos.de.asc
+https://github.com/richterger/shim-review/blob/master/pgpkeys/gerald.richter%40ecos.de.asc
 
 -------------------------------------------------------------------------------
 Who is the secondary contact for security updates, etc.
@@ -48,7 +48,7 @@ Who is the secondary contact for security updates, etc.
 - Position: Engineer
 - Email address: tobias.schaefer@ecos.de
 - PGP key, signed by the other security contacts, and preferably also with signatures that are reasonably well known in the linux community:
-https://github.com/richterger/shim-review/pgpkeys/tobias.schaefer@ecos.de.asc
+https://github.com/richterger/shim-review/blob/master/pgpkeys/tobias.schaefer%40ecos.de.asc
 
 -------------------------------------------------------------------------------
 What upstream shim tag is this starting from:
